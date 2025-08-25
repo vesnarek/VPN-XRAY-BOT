@@ -1,10 +1,9 @@
-# bot/views/render.py
 from __future__ import annotations
 from datetime import datetime
 from typing import Dict, List, Optional
 from bot.settings import MONTHLY_FEE
 
-# --- helpers -----------------------------------------------------------------
+
 
 def _fmt_dt_iso(s: Optional[str]) -> str:
     if not s:
@@ -35,12 +34,10 @@ def _device_status_ru(d: Dict) -> str:
     return "активен"
 
 def _daily_fee_rub() -> int:
-    # ≈ MONTHLY_FEE / 30, минимум 1 ₽
     if not MONTHLY_FEE:
         return 0
     return max(1, round(MONTHLY_FEE / 30))
 
-# --- публичные вьюхи ---------------------------------------------------------
 
 def promo_text() -> str:
     return (
@@ -82,7 +79,6 @@ def device_card(d: Dict, idx: int = 1) -> str:
         parts.append(f"Дневной платёж ≈ {daily} ₽ (первое списание через 24 часа)")
     return "\n".join(parts)
 
-# На совместимость со старым импортом
 vpn_card = device_card
 
 def os_instruction(os_code: str) -> str:
@@ -132,7 +128,6 @@ def referral_text(my_tg_id: int, bot_username: str) -> str:
         "🙌 Друг тоже получит 10 дней бесплатного VPN"
     )
 
-# --- новый главный экран -----------------------------------------------------
 
 def main_menu_text(fullname: Optional[str], balance_cents: int, active_devices: int) -> str:
     name = fullname or "друг"

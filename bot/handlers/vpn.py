@@ -1,4 +1,3 @@
-# bot/handlers/vpn.py
 import asyncio
 import logging
 from aiogram import Router, F, types
@@ -20,7 +19,7 @@ from bot.settings import DEFAULT_DAYS, MONTHLY_FEE, API_URL
 router = Router()
 
 _REFRESH_READY: dict[tuple[int, str], float] = {}
-# ---------- safe helpers ----------
+
 
 async def safe_edit(msg: types.Message, text: str, retries: int = 3, **kwargs):
     for _ in range(retries):
@@ -45,16 +44,16 @@ async def safe_answer(cq: types.CallbackQuery, text: str = "", show_alert: bool 
     except Exception:
         pass
 
-# ---------- helpers ----------
+
 
 async def _user_devices(tg_id: int) -> list[dict]:
     return db.list_devices(tg_id)
 
 def _next_device_name(os_code: str, existing: list[dict], uuid: str | None = None) -> str:
-    # Приводим код ОС
+
     base = "iOS" if os_code.lower() == "ios" else os_code.capitalize()
 
-    # Хвост из UUID (последние 4 символа без дефисов)
+
     suffix = ""
     if uuid:
         tail = uuid.replace("-", "")[-4:]
@@ -93,7 +92,7 @@ def _find_device_local(device_id: str, tg_id: int) -> dict | None:
             pass
     return None
 
-# ---------- setup ----------
+
 
 @router.callback_query(F.data == "vpn_setup")
 async def vpn_setup(cq: types.CallbackQuery):
@@ -117,7 +116,6 @@ async def choose_os(cq: types.CallbackQuery):
     for row in kb.inline_keyboard:
         for btn in row:
             if btn.callback_data == "buy":
-                # хендлер слушает confirm_buy:<os_code>
                 btn.callback_data = f"confirm_buy:{os_code}"
 
     await safe_edit(cq.message, text, reply_markup=kb)
@@ -149,12 +147,11 @@ async def buy_create(cq: types.CallbackQuery):
         await safe_answer(cq)
         return
 
-    # 2) имя устройства
     name = _next_device_name(os_code, devices, uuid_)
 
     logging.info(f"[buy_create] Creating device name={name} for uuid={uuid_}")
 
-    # 3) сохраняем устройство (и sub_id/expiry)
+
     try:
         db.add_device(
             tg_id=cq.from_user.id,
@@ -169,7 +166,7 @@ async def buy_create(cq: types.CallbackQuery):
     except Exception as e:
         logging.exception(f"[buy_create] DB add_device failed: {e}")
 
-    # 4) отправляем инструкцию и подписку (по sub_id, если есть)
+
     ident = sub_id or uuid_
     sub = f"{API_URL.rstrip('/')}/sub/{ident}?b64=1"
     text = os_instruction(os_code) + f"\n\n<b>Ваша ссылка:</b>\n<code>{sub}</code>"
@@ -181,11 +178,11 @@ async def buy_create(cq: types.CallbackQuery):
     await safe_edit(cq.message, text, parse_mode="HTML", reply_markup=done_kb)
     await safe_answer(cq)
 
-# ---------- devices list ----------
+
 
 @router.callback_query(F.data == "devices")
 async def devices_list(cq: types.CallbackQuery):
-    # получаем список устройств пользователя
+
     try:
         devices = await _user_devices(cq.from_user.id)
     except Exception:
@@ -211,7 +208,7 @@ async def devices_list(cq: types.CallbackQuery):
     await safe_edit(cq.message, text, parse_mode="HTML", reply_markup=kb)
     await safe_answer(cq)
 
-# ---------- actions ----------
+
 
 @router.callback_query(F.data.regexp(r"^dev:.+?:open$"))
 async def dev_open(cq: types.CallbackQuery):
@@ -288,7 +285,7 @@ async def dev_key(cq: types.CallbackQuery):
         cq.message,
         text,
         parse_mode="HTML",
-        reply_markup=key_actions_kb(uuid_ or ident)     # <— тут
+        reply_markup=key_actions_kb(uuid_ or ident)
     )
     await safe_answer(cq)
 
@@ -304,7 +301,7 @@ async def dev_refresh(cq: types.CallbackQuery):
     uuid_cur = (d.get("uuid") or "").strip()
     sub_id   = (d.get("sub_id") or "").strip()
 
-    # ---- ШАГ 1: предупреждение (первый тап) ----
+
     key = (cq.from_user.id, str(d.get("uuid") or d.get("id") or dev_id))
     now = time.time()
     ready_until = _REFRESH_READY.get(key, 0)
@@ -318,8 +315,7 @@ async def dev_refresh(cq: types.CallbackQuery):
         )
         return
 
-    # ---- ШАГ 2: реальный рефреш (второй тап) ----
-    # если sub_id не сохранён (старые записи) — попробуем найти
+
     if not sub_id and uuid_cur:
         try:
             sub_found = await api.resolve_sub_id_from_uuid(uuid_cur)

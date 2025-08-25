@@ -1,4 +1,3 @@
-# bot/handlers/admin.py
 import asyncio
 import secrets
 import sqlite3
@@ -115,14 +114,14 @@ async def admin_users_btn(cq: types.CallbackQuery):
         await cq.answer()
         return
 
-    # пагинация
+
     try:
         offset = int((cq.data or "admin:users:0").split(":")[2])
     except Exception:
         offset = 0
     limit = 20
 
-    # базовые данные по пользователям для страницы
+
     with db.db() as con:
         rows = con.execute("""
             SELECT
@@ -139,7 +138,7 @@ async def admin_users_btn(cq: types.CallbackQuery):
     has_more = len(rows) > limit
     rows = rows[:limit]
 
-    # бэкап-источник трафика (агрегаты менеджера)
+
     traffic_map: dict[int, tuple[int, int]] = {}
     mgr = await api.list_users()
     if isinstance(mgr, list):
@@ -156,7 +155,7 @@ async def admin_users_btn(cq: types.CallbackQuery):
 
     lines: list[str] = []
 
-    # формирование строк списка
+
     for r in rows:
         tg_id = int(r["tg_id"])
         username = (r["username"] or "").strip() or None
@@ -165,7 +164,7 @@ async def admin_users_btn(cq: types.CallbackQuery):
         bal_rub = int(r["balance_cents"] or 0) // 100
         devs_cnt = int(r["devs"] or 0)
 
-        # суммируем по всем активным девайсам пользователя
+
         up = dn = 0
         try:
             with db.db() as con2:
@@ -184,10 +183,10 @@ async def admin_users_btn(cq: types.CallbackQuery):
                     up += int(u or 0)
                     dn += int(v or 0)
         except Exception:
-            # тихо игнорим, ниже есть запасной путь
+
             pass
 
-        # если не смогли получить живые данные — возьмём агрегат из менеджера
+
         if (up + dn) == 0:
             tup = traffic_map.get(tg_id)
             if tup:

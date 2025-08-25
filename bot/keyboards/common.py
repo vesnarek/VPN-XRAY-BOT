@@ -1,4 +1,3 @@
-
 from __future__ import annotations
 from aiogram.types import InlineKeyboardMarkup, InlineKeyboardButton
 from typing import List, Dict, Optional
@@ -15,7 +14,6 @@ def _safe_cb(data: str, max_len: int = 64) -> str:
 
     if len(data) <= max_len:
         return data
-    # если вдруг device_id длинный (uuid и т.п.) — подрежем хвост
     head = data[:max_len - 3]
     return head + "..."
 
@@ -68,8 +66,8 @@ def admin_menu_kb() -> InlineKeyboardMarkup:
     return InlineKeyboardMarkup(inline_keyboard=[
         [InlineKeyboardButton(text="👥 Пользователи", callback_data="admin:users:0")],
         [InlineKeyboardButton(text="📊 Статистика", callback_data="admin:stats")],
-        [InlineKeyboardButton(text="🎟 Создать промокод", callback_data="admin:genpromo")],  # остаёмся в админке
-        [InlineKeyboardButton(text="🏠 В обычное меню", callback_data="home")],       # явный выход в обычное
+        [InlineKeyboardButton(text="🎟 Создать промокод", callback_data="admin:genpromo")],
+        [InlineKeyboardButton(text="🏠 В обычное меню", callback_data="home")],
     ])
 
 def admin_users_kb(offset: int, has_more: bool) -> InlineKeyboardMarkup:
@@ -122,7 +120,6 @@ def first_buy_kb(balance_ok: bool, monthly_fee: int) -> InlineKeyboardMarkup:
     return InlineKeyboardMarkup(inline_keyboard=rows)
 
 def confirm_buy_kb(os_code: str) -> InlineKeyboardMarkup:
-    """Синоним под ожидаемым именем."""
     return InlineKeyboardMarkup(inline_keyboard=[
         [InlineKeyboardButton(text="Подтвердить", callback_data=_safe_cb(f"confirm_buy:{os_code}"))],
         [InlineKeyboardButton(text="Назад", callback_data="vpn_setup")],
@@ -156,7 +153,6 @@ def devices_list_kb(devices: List[Dict]) -> InlineKeyboardMarkup:
 
 
 def device_actions_basic_kb(uuid: str, created_or_activated_at: int | None = None) -> InlineKeyboardMarkup:
-    # сколько осталось до 24ч
     can_delete = True
     remain_hours = 0
     if created_or_activated_at:
@@ -172,7 +168,6 @@ def device_actions_basic_kb(uuid: str, created_or_activated_at: int | None = Non
     if can_delete:
         rows.append([InlineKeyboardButton(text="🗑 Удалить", callback_data=f"dev:{uuid}:delete")])
     else:
-        # «неактивная» кнопка с подсказкой
         rows.append([InlineKeyboardButton(
             text=f"🗑 Удалить (через ~{remain_hours} ч)",
             callback_data=f"dev:{uuid}:delete_blocked"

@@ -16,11 +16,8 @@ async def cb_ref(cq: types.CallbackQuery, bot: Bot):
     await cq.answer()
 
 
-# --- фоновые уведомления о бонусах ---
+
 async def run_referral_notifier(bot: Bot, poll_interval: float = 2.0):
-    """
-    Следит за новыми payments.method='referral' и шлёт уведомления.
-    """
     last_id = 0
     try:
         with db.db() as con:

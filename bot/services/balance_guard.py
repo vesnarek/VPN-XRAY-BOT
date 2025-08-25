@@ -13,7 +13,7 @@ JITTER_SEC = 30
 COOLDOWN_SEC = 300
 ACTIONS_PER_PASS = 30
 
-_last_action_ts: dict[str, float] = {}  # uuid -> timestamp
+_last_action_ts: dict[str, float] = {}
 
 def _cooldown_ok(uuid: str) -> bool:
     now = time.time()

@@ -1,4 +1,3 @@
-# bot/services/api.py
 import os
 import socket
 import logging

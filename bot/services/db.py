@@ -1,4 +1,3 @@
-# bot/services/db.py
 import sqlite3
 import time
 import contextlib
@@ -119,12 +118,12 @@ def migrate():
             "WHERE method='promo'"
         )
 
-# ------------------------ utils ------------------------
+
 
 def now() -> int:
     return int(time.time())
 
-# ------------------------ users ------------------------
+
 
 def ensure_user(tg_id: int, username: Optional[str] = None) -> Dict[str, Any]:
     with db() as con:
@@ -150,7 +149,6 @@ def update_username(tg_id: int, username: Optional[str]):
         con.execute("UPDATE users SET username=? WHERE tg_id=?", (username, tg_id))
 
 def set_referrer(tg_id: int, referrer: int):
-    """Ставим реферера только если его ещё нет и это не сам пользователь."""
     if not referrer or referrer == tg_id:
         return
     with db() as con:
@@ -174,12 +172,10 @@ def get_balance_cents(tg_id: int) -> int:
         return int(r[0]) if r else 0
 
 def add_balance(tg_id: int, amount_cents: int, method: str, ref: Optional[str] = None):
-    """ВНЕ транзакций."""
     with db() as con:
         add_balance_con(con, tg_id, amount_cents, method, ref)
 
 def add_balance_con(con: sqlite3.Connection, tg_id: int, amount_cents: int, method: str, ref: Optional[str] = None):
-    """ВНУТРИ уже открытой транзакции (используй из своих функций)."""
     con.execute(
         "UPDATE users SET balance_cents = balance_cents + ? WHERE tg_id=?",
         (int(amount_cents), tg_id)
@@ -201,7 +197,6 @@ def burn_balance(tg_id: int, cents: int) -> bool:
         con.execute("UPDATE users SET balance_cents=? WHERE tg_id=?", (cur - cents, tg_id))
         return True
 
-# ------------------------ devices ------------------------
 
 def list_devices(tg_id: int) -> list[Dict[str, Any]]:
     with db() as con:
@@ -272,10 +267,8 @@ def nearest_expiry_for_user(tg_id: int) -> Optional[str]:
         ).fetchone()
     return r[0] if r and r[0] else None
 
-# ------------------------ REFERRAL CORE ------------------------
 
 def _referral_paid_already_con(con: sqlite3.Connection, referred_tg_id: int) -> bool:
-    """Был ли уже бонус за ЭТОГО реферала? (ищем любую выплату с ref='user:<id>' и method='referral')"""
     marker = f"user:{int(referred_tg_id)}"
     r = con.execute(
         "SELECT 1 FROM payments WHERE method='referral' AND ref=? LIMIT 1",
@@ -350,7 +343,6 @@ def activate_device_and_maybe_referral(uuid: str, bonus_cents: int = 2000) -> Di
 
         return {"ok": True, "already": False, "granted": granted}
 
-# ------------------------ promos (утилиты) ------------------------
 
 def create_promo(code: str, amount_cents: int, uses_left: int = 1):
     with db() as con:
@@ -375,7 +367,6 @@ def decrement_promo_use(code: str) -> bool:
         con.execute("UPDATE promos SET uses_left = uses_left - 1 WHERE code=?", (code,))
         return True
 
-# ------------------------ admin helpers ------------------------
 
 def counts_summary() -> Dict[str, int]:
     with db() as con:
@@ -424,7 +415,6 @@ def users_count_low_balance(threshold_cents: int = 1000) -> int:
         ).fetchone()
         return int(r[0] or 0)
 
-# ------------------------ events ------------------------
 
 def log_event(tg_id: int, etype: str, payload: str):
     with db() as con:

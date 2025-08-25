@@ -1,4 +1,3 @@
-# bot/handlers/payments.py
 from aiogram import Router, types, F
 from aiogram.types import InlineKeyboardMarkup, InlineKeyboardButton
 from bot.keyboards.common import pay_kb, back_kb
@@ -80,7 +79,6 @@ async def cb_pay_promo(cq: types.CallbackQuery):
     await cq.answer()
 
 
-# один пользователь может активировать ОДИН и тот же промокод только один раз
 @router.message(F.text.regexp(r"^[A-Za-z0-9_-]{6,32}$"))
 async def catch_promo(message: types.Message):
     code = message.text.strip()
