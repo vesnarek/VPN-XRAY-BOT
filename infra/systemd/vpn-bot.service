@@ -1,0 +1,16 @@
+[Unit]
+Description=VPN Telegram Bot
+After=network-online.target
+
+[Service]
+WorkingDirectory=/opt/vpn-bot
+Environment="PYTHONUNBUFFERED=1"
+EnvironmentFile=/opt/vpn-bot/.env
+ExecStart=/usr/bin/python3 -m bot.main
+Restart=always
+RestartSec=5
+User=bot
+Group=bot
+
+[Install]
+WantedBy=multi-user.target

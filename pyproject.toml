@@ -1,0 +1,13 @@
+[project]
+name = "vpn-bot"
+version = "0.1.0"
+requires-python = ">=3.10"
+dependencies = [
+  "aiogram==3.10.0",
+  "aiohttp>=3.9",
+  "python-dotenv>=1.0",
+  "qrcode[pil]>=7.4",
+]
+
+[tool.black]
+line-length = 100
