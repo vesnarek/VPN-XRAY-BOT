@@ -36,32 +36,50 @@ async def _read(r: aiohttp.ClientResponse, path: str):
     return {"_error": f"{path} bad content-type {ct}"}
 
 async def api_post(path: str, payload: dict, base: Optional[str] = None):
-    base = _norm_base(base)
-    url = f"{base}{path}"
-    logging.info(f"[api_post] {url} payload={payload}")
-    try:
-        async with _build_session() as s:
-            async with s.post(url, json=payload) as r:
-                data = await _read(r, path)
-                logging.info(f"[api_post] {url} -> {data}")
-                return data
-    except Exception as e:
-        logging.exception(f"[api_post] {url} failed")
-        return {"_error": f"{path} exception: {e}"}
+    bases = [ _norm_base(base) ] if base else await _preferred_bases()
+    errors = []
+    for b in bases:
+        url = f"{b}{path}"
+        logging.info(f"[api_post] {url} payload={payload}")
+        try:
+            async with _build_session() as s:
+                async with s.post(url, json=payload) as r:
+                    data = await _read(r, path)
+                    if isinstance(data, dict) and "_error" not in data:
+                        data.setdefault("_server", b)
+                        logging.info(f"[api_post] {url} -> OK via {b}")
+                        return data
+                    msg = data.get("_error") if isinstance(data, dict) else "non-dict response"
+                    errors.append(f"{b}: {msg}")
+                    logging.warning(f"[api_post] {url} error: {msg}")
+        except Exception as e:
+            errors.append(f"{b}: exception {e}")
+            logging.exception(f"[api_post] {url} failed")
+    return {"_error": f"{path} failed on all backends", "_details": errors}
+
 
 async def api_get(path: str, params: dict | None = None, base: Optional[str] = None):
-    base = _norm_base(base)
-    url = f"{base}{path}"
-    logging.info(f"[api_get] {url} params={params}")
-    try:
-        async with _build_session() as s:
-            async with s.get(url, params=params) as r:
-                data = await _read(r, path)
-                logging.info(f"[api_get] {url} -> {data}")
-                return data
-    except Exception as e:
-        logging.exception(f"[api_get] {url} failed")
-        return {"_error": f"{path} exception: {e}"}
+    bases = [ _norm_base(base) ] if base else await _preferred_bases()
+    errors = []
+    for b in bases:
+        url = f"{b}{path}"
+        logging.info(f"[api_get] {url} params={params}")
+        try:
+            async with _build_session() as s:
+                async with s.get(url, params=params) as r:
+                    data = await _read(r, path)
+                    if isinstance(data, dict) and "_error" not in data:
+                        data.setdefault("_server", b)
+                        logging.info(f"[api_get] {url} -> OK via {b}")
+                        return data
+                    msg = data.get("_error") if isinstance(data, dict) else "non-dict response"
+                    errors.append(f"{b}: {msg}")
+                    logging.warning(f"[api_get] {url} error: {msg}")
+        except Exception as e:
+            errors.append(f"{b}: exception {e}")
+            logging.exception(f"[api_get] {url} failed")
+    return {"_error": f"{path} failed on all backends", "_details": errors}
+
 
 
 
@@ -113,6 +131,39 @@ async def _choose_api_base() -> str:
     logging.info("[load] neither measured; using primary by default")
     return _norm_base(primary)
 
+async def _preferred_bases() -> list[str]:
+    best = (await _choose_api_base()).rstrip("/")
+    pri  = (API_URL or "").strip().rstrip("/")
+    sec  = (API_URL_2 or "").strip().rstrip("/")
+    order = [b for b in [best, pri, sec] if b]
+    # убираем дубликаты, сохраняя порядок
+    seen, uniq = set(), []
+    for b in order:
+        if b not in seen:
+            uniq.append(b); seen.add(b)
+    return uniq
+
+async def _bases_order() -> list[str]:
+    primary = (API_URL or "").strip()
+    secondary = (API_URL_2 or "").strip()
+    order: list[str] = []
+
+
+    try:
+        best = await _choose_api_base()
+    except Exception:
+        best = (primary or secondary or "").strip()
+
+    if best:
+        order.append(best.rstrip("/"))
+
+    for b in (primary, secondary):
+        b = (b or "").strip()
+        if b and b.rstrip("/") not in order:
+            order.append(b.rstrip("/"))
+
+
+    return [b for b in order if b]
 
 async def list_users(base: Optional[str] = None):
     return await api_get("/list", base=base)

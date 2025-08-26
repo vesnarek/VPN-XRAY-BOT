@@ -12,6 +12,7 @@ from bot.services.scheduler import run_scheduler
 from bot.services.balance_guard import run_balance_guard
 from bot.handlers.referral import run_referral_notifier
 from bot.services.notify_server import start_notify_server
+from bot.handlers.payments import run_card_payment_notifier
 
 logging.basicConfig(level=logging.INFO)
 
@@ -79,7 +80,7 @@ async def main():
     asyncio.create_task(run_balance_guard())
     asyncio.create_task(run_multi_guard(bot))
     asyncio.create_task(run_referral_notifier(bot))
-
+    asyncio.create_task(run_card_payment_notifier(bot))
     asyncio.create_task(start_notify_server(bot))
 
     await dp.start_polling(bot)

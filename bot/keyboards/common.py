@@ -2,7 +2,7 @@ from __future__ import annotations
 from aiogram.types import InlineKeyboardMarkup, InlineKeyboardButton
 from typing import List, Dict, Optional
 import math, time
-
+from bot.settings import MAX_DEVICES_PER_USER
 def _safe_text(s: str, max_len: int = 32) -> str:
 
     if not s:
@@ -89,17 +89,18 @@ def admin_users_kb(offset: int, has_more: bool) -> InlineKeyboardMarkup:
 def os_kb(show_back: bool = True) -> InlineKeyboardMarkup:
     keyboard = [
         [
-            InlineKeyboardButton(text="iOS", callback_data="os_ios"),
-            InlineKeyboardButton(text="Android", callback_data="os_android")
+            InlineKeyboardButton(text="🍎 iOS", callback_data="os_ios"),
+            InlineKeyboardButton(text="🤖 Android", callback_data="os_android"),
         ],
         [
-            InlineKeyboardButton(text="Windows", callback_data="os_windows"),
-            InlineKeyboardButton(text="macOS", callback_data="os_macos")
-        ]
+            InlineKeyboardButton(text="🖥 Windows", callback_data="os_windows"),
+            InlineKeyboardButton(text="🍎 macOS", callback_data="os_macos"),
+        ],
     ]
     if show_back:
         keyboard.append([InlineKeyboardButton(text="Назад", callback_data="home")])
     return InlineKeyboardMarkup(inline_keyboard=keyboard)
+
 
 
 
@@ -113,7 +114,7 @@ def first_buy_kb(balance_ok: bool, monthly_fee: int) -> InlineKeyboardMarkup:
 
     rows = []
     if balance_ok:
-        rows.append([InlineKeyboardButton(text="Купить ключ", callback_data="buy")])
+        rows.append([InlineKeyboardButton(text="Получить ключ✅", callback_data="buy")])
     else:
         rows.append([InlineKeyboardButton(text="Пополнить баланс", callback_data="pay")])
     rows.append([InlineKeyboardButton(text="Назад", callback_data="vpn_setup")])
@@ -129,8 +130,8 @@ def confirm_buy_kb(os_code: str) -> InlineKeyboardMarkup:
 
 
 def devices_list_kb(devices: List[Dict]) -> InlineKeyboardMarkup:
-
     rows = []
+
     if devices:
         for i, d in enumerate(devices, start=1):
             dev_id = _device_id_of(d, fallback=str(i))
@@ -146,7 +147,9 @@ def devices_list_kb(devices: List[Dict]) -> InlineKeyboardMarkup:
         rows.append([InlineKeyboardButton(text="Настроить VPN", callback_data="vpn_setup")])
 
 
-    rows.append([InlineKeyboardButton(text="Добавить устройство", callback_data="vpn_setup")])
+    if len(devices) < MAX_DEVICES_PER_USER:
+        rows.append([InlineKeyboardButton(text="Добавить устройство", callback_data="vpn_setup")])
+
     rows.append([InlineKeyboardButton(text="Назад", callback_data="home")])
     return InlineKeyboardMarkup(inline_keyboard=rows)
 

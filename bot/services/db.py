@@ -3,6 +3,11 @@ import time
 import contextlib
 from pathlib import Path
 from typing import Optional, Dict, Any
+import os
+
+REF_BONUS_INVITER_CENTS = int(os.getenv("REF_BONUS_INVITER_CENTS", "3000"))
+REF_BONUS_FRIEND_CENTS  = int(os.getenv("REF_BONUS_FRIEND_CENTS",  "2000"))
+MAX_DEVICES_PER_USER = int(os.getenv("MAX_DEVICES_PER_USER", "3"))
 
 DB_PATH = Path(__file__).resolve().parent.parent / "bot.db"
 
@@ -108,6 +113,8 @@ def migrate():
         _try("CREATE INDEX IF NOT EXISTS ix_devices_activated_at ON devices(activated_at)")
         _try("ALTER TABLE devices ADD COLUMN server_base TEXT")
         _try("CREATE INDEX IF NOT EXISTS ix_devices_server_base ON devices(server_base)")
+        _try("CREATE UNIQUE INDEX IF NOT EXISTS ux_payments_card_ref ON payments(ref) WHERE method='card'")
+        _try("CREATE INDEX IF NOT EXISTS ix_payments_method_id ON payments(method, id)")
 
         _try("CREATE INDEX IF NOT EXISTS ix_payments_referral_ref ON payments(ref) WHERE method='referral'")
 
@@ -217,11 +224,23 @@ def add_device(
     server_base: Optional[str] = None
 ):
     with db() as con:
+
+        row = con.execute(
+            "SELECT COUNT(*) FROM devices WHERE tg_id=? AND status!='deleted'",
+            (tg_id,)
+        ).fetchone()
+        if int(row[0] or 0) >= MAX_DEVICES_PER_USER:
+            raise ValueError("device_limit_reached")
+
         con.execute(
-            """INSERT OR IGNORE INTO devices(tg_id, uuid, name, os, status, created_at, expires_at, sub_id)
-               VALUES(?,?,?,?,?,?,?,?)""",
-            (tg_id, uuid, name, os, status, now(), expires_at, sub_id)
+            """INSERT OR IGNORE INTO devices(tg_id, uuid, name, os, status, created_at, expires_at, sub_id, server_base)
+               VALUES(?,?,?,?,?,?,?,?,?)""",
+            (tg_id, uuid, name, os, status, now(), expires_at, sub_id, server_base)
         )
+        if server_base:
+            con.execute("UPDATE devices SET server_base=? WHERE uuid=? AND (server_base IS NULL OR server_base='')",
+                        (server_base, uuid))
+
 
 def set_device_status(uuid: str, status: str):
     with db() as con:
@@ -243,6 +262,9 @@ def set_device_activated(uuid: str, ts: Optional[int] = None):
             "WHERE uuid=? AND (activated_at IS NULL OR activated_at=0)",
             (t, t, uuid)
         )
+def set_device_server_base(uuid: str, server_base: Optional[str]):
+    with db() as con:
+        con.execute("UPDATE devices SET server_base=? WHERE uuid=?", (server_base, uuid))
 
 def device_by_uuid(uuid: str) -> Optional[Dict[str, Any]]:
     with db() as con:
@@ -301,8 +323,9 @@ def maybe_grant_referral_bonus_for_user(tg_id: int, bonus_cents: int = 2000) -> 
 
         marker = f"user:{int(tg_id)}"
 
-        add_balance_con(con, tg_id,     bonus_cents, "referral", marker)
-        add_balance_con(con, referrer,  bonus_cents, "referral", marker)
+        add_balance_con(con, tg_id, REF_BONUS_FRIEND_CENTS, "referral", marker)
+        add_balance_con(con, referrer, REF_BONUS_INVITER_CENTS, "referral", marker)
+
         return True
 
 def activate_device_and_maybe_referral(uuid: str, bonus_cents: int = 2000) -> Dict[str, Any]:
@@ -337,8 +360,8 @@ def activate_device_and_maybe_referral(uuid: str, bonus_cents: int = 2000) -> Di
                 referrer = int(u["referrer"]) if (u and u["referrer"]) else 0
                 if referrer and referrer != tg_id:
                     marker = f"user:{int(tg_id)}"
-                    add_balance_con(con, tg_id,    bonus_cents, "referral", marker)
-                    add_balance_con(con, referrer, bonus_cents, "referral", marker)
+                    add_balance_con(con, tg_id, REF_BONUS_FRIEND_CENTS, "referral", marker)
+                    add_balance_con(con, referrer, REF_BONUS_INVITER_CENTS, "referral", marker)
                     granted = True
 
         return {"ok": True, "already": False, "granted": granted}
@@ -436,3 +459,22 @@ def find_event_by_payment(payment_id: str):
             (f'%"{payment_id}"%',)
         ).fetchone()
         return dict(r) if r else None
+
+def card_payment_exists(ref: str) -> bool:
+    with db() as con:
+        r = con.execute(
+            "SELECT 1 FROM payments WHERE method='card' AND ref=? LIMIT 1",
+            (ref,)
+        ).fetchone()
+        return bool(r)
+
+def add_card_payment_if_new(tg_id: int, amount_cents: int, ref: str) -> bool:
+    import sqlite3 as _sqlite3
+    with db() as con:
+        try:
+            add_balance_con(con, tg_id, amount_cents, "card", ref)
+            return True
+        except _sqlite3.IntegrityError:
+            return False
+
+

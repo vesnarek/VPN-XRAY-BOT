@@ -1,21 +1,13 @@
-from aiogram import Router, types, F, Bot
 import asyncio
 import logging
-from bot.views.render import referral_text
-from bot.keyboards.common import back_kb
+from typing import Sequence, Tuple, Any, Dict, Optional
+from aiogram import Bot
+from aiogram.exceptions import TelegramRetryAfter, TelegramForbiddenError, TelegramAPIError
 from bot.services import db
 
+from aiogram import Router
 router = Router()
-
-
-@router.callback_query(F.data == "ref")
-async def cb_ref(cq: types.CallbackQuery, bot: Bot):
-    me = await bot.get_me()
-    txt = referral_text(cq.from_user.id, me.username)
-    await cq.message.edit_text(txt, reply_markup=back_kb())
-    await cq.answer()
-
-
+log = logging.getLogger(__name__)
 
 async def run_referral_notifier(bot: Bot, poll_interval: float = 2.0):
     last_id = 0
@@ -26,12 +18,14 @@ async def run_referral_notifier(bot: Bot, poll_interval: float = 2.0):
             ).fetchone()
             last_id = int(row[0] or 0)
     except Exception as e:
-        logging.warning(f"[referral_notifier] init last_id failed: {e}")
+        log.warning("[referral_notifier] init last_id failed: %s", e)
 
-    logging.info(f"[referral_notifier] start from payment id > {last_id}")
+    log.info("[referral_notifier] start from payment id > %s", last_id)
 
+    backoff = 1.0
     while True:
         try:
+            rows: Sequence[Dict[str, Any]]
             with db.db() as con:
                 rows = con.execute(
                     """
@@ -39,9 +33,15 @@ async def run_referral_notifier(bot: Bot, poll_interval: float = 2.0):
                     FROM payments
                     WHERE method='referral' AND id > ?
                     ORDER BY id ASC
+                    LIMIT 200
                     """,
                     (last_id,)
                 ).fetchall()
+
+            if not rows:
+                backoff = 1.0
+                await asyncio.sleep(poll_interval)
+                continue
 
             for r in rows:
                 pid   = int(r["id"])
@@ -52,14 +52,39 @@ async def run_referral_notifier(bot: Bot, poll_interval: float = 2.0):
                     "🎁 <b>Бонус за приглашение</b>\n\n"
                     f"На ваш баланс зачислено <b>{rub} ₽</b>."
                 )
+
                 try:
                     await bot.send_message(tg_id, text, parse_mode="HTML")
-                except Exception as e:
-                    logging.warning(f"[referral_notifier] send to {tg_id} failed: {e}")
 
-                last_id = pid
+                    last_id = pid
+
+                except TelegramRetryAfter as e:
+
+                    delay = max(1, int(getattr(e, "retry_after", 5)))
+                    log.warning("[referral_notifier] 429, sleep %ss", delay)
+                    await asyncio.sleep(delay)
+
+                    break
+
+                except TelegramForbiddenError as e:
+
+                    log.warning("[referral_notifier] 403 for user %s: %s", tg_id, e)
+                    last_id = pid
+
+                except TelegramAPIError as e:
+
+                    log.error("[referral_notifier] TelegramAPIError: %s", e)
+                    await asyncio.sleep(backoff)
+                    backoff = min(backoff * 2, 60)
+                    break
+
+                except Exception as e:
+                    log.exception("[referral_notifier] send error for pid=%s: %s", pid, e)
+                    await asyncio.sleep(backoff)
+                    backoff = min(backoff * 2, 60)
+                    break
 
         except Exception as e:
-            logging.error(f"[referral_notifier] loop error: {e}")
-
-        await asyncio.sleep(poll_interval)
+            log.exception("[referral_notifier] loop error: %s", e)
+            await asyncio.sleep(2.0)
+            backoff = min(backoff * 2, 60)

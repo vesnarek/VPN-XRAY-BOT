@@ -27,11 +27,16 @@ def _sec(x) -> int:
 
 
 async def daily_billing_tick():
-    charge_cents = int(DAILY_FEE_C())
-    if charge_cents <= 0:
-        return
+    try:
+        charge_cents = int(DAILY_FEE_C() if callable(DAILY_FEE_C) else DAILY_FEE_C)
+    except TypeError:
+        charge_cents = int(DAILY_FEE_C)
 
     sod = _start_of_utc_day()
+    logging.info("[billing] tick start; fee_cents=%s sod=%s", charge_cents, sod)
+    if charge_cents <= 0:
+        logging.info("[billing] skip: fee is 0")
+        return
 
     with db.db() as con:
         rows = con.execute("""
@@ -40,9 +45,7 @@ async def daily_billing_tick():
             WHERE status='active' AND activated_at IS NOT NULL
             ORDER BY id
         """).fetchall()
-
-    if not rows:
-        return
+    logging.info("[billing] candidates=%d", len(rows))
 
     for r in rows:
         uuid   = (r["uuid"]   or "").strip()
@@ -51,6 +54,7 @@ async def daily_billing_tick():
 
         activated_at = _sec(r["activated_at"])
         last_billed  = _sec(r["last_billed"])
+
 
         if activated_at <= 0 or activated_at > sod or last_billed >= sod:
             continue
@@ -61,14 +65,21 @@ async def daily_billing_tick():
             cur_cents = int(cur["balance_cents"] if cur else 0)
 
             if cur_cents >= charge_cents:
+
                 res = con.execute(
                     "UPDATE users SET balance_cents = balance_cents - ? "
                     "WHERE tg_id=? AND balance_cents >= ?",
                     (charge_cents, tg_id, charge_cents)
                 )
                 if res.rowcount == 1:
+
                     ref = f"uuid:{uuid}" if uuid else f"dev:{r['id']}"
-                    db.add_balance_con(con, tg_id, -charge_cents, "daily", ref)
+                    con.execute(
+                        "INSERT INTO payments(tg_id, amount_cents, method, ref, created_at) "
+                        "VALUES(?,?,?,?,?)",
+                        (tg_id, -charge_cents, "daily", ref, sod)
+                    )
+
                     con.execute("UPDATE devices SET last_billed=? WHERE uuid=?", (sod, uuid))
                     charged = True
                     logging.info("[billing] charged uuid=%s tg=%s -%dc", uuid, tg_id, charge_cents)
@@ -76,16 +87,18 @@ async def daily_billing_tick():
         if charged:
             continue
 
+
         with db.db() as con:
             con.execute("UPDATE devices SET status='paused' WHERE uuid=?", (uuid,))
             db.log_event_con(con, tg_id, "auto_pause", f"uuid={uuid}")
-
         ident = sub_id or uuid
+        logging.info("[billing] paused uuid=%s tg=%s (insufficient balance)", uuid, tg_id)
         if ident:
             try:
                 await api.pause(ident)
             except Exception as e:
                 logging.warning("[billing] api.pause failed for %s: %s", ident, e)
+
 
 
 async def send_low_balance_notifications(bot: Bot):

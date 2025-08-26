@@ -7,6 +7,8 @@ def _getenv(name: str, default: str = "") -> str:
     v = os.getenv(name, default)
     return v.strip() if isinstance(v, str) else v
 
+MAX_DEVICES_PER_USER = int(os.getenv("MAX_DEVICES_PER_USER", "3"))
+
 BOT_TOKEN      = _getenv("BOT_TOKEN")
 API_URL        = _getenv("API_URL", "http://127.0.0.1:8081")
 API_URL_2      = _getenv("API_URL_2", "")
@@ -35,3 +37,4 @@ TOPUP_RUB = 60
 
 def user_name(tg_id: int) -> str:
     return f"tg_{tg_id}"
+

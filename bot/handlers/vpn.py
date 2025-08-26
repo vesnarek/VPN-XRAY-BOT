@@ -15,6 +15,7 @@ from bot.keyboards.common import (
 from bot.views.render import os_instruction
 from bot.services import api, db
 from bot.settings import DEFAULT_DAYS, MONTHLY_FEE, API_URL
+from bot.settings import MAX_DEVICES_PER_USER
 
 router = Router()
 
@@ -107,11 +108,20 @@ async def choose_os(cq: types.CallbackQuery):
     need = 2 * (len(devices) + 1)
     afford = bal_rub >= need
 
+    # отображаемое имя ОС + эмодзи
+    os_l = os_code.lower()
+    platform = "iOS" if os_l == "ios" else ("macOS" if os_l == "macos" else os_code.capitalize())
+    emoji = "🍎" if platform in ("iOS", "macOS") else ("🖥" if platform == "Windows" else ("🤖" if platform == "Android" else ""))
+
+    # дневная цена из MONTHLY_FEE (округляем ≈2 ₽/день)
+    daily_rub = max(1, round(MONTHLY_FEE / 30))
+
     text = (
-        f"Подключение нового устройства ({os_code}).\n\n"
-        f"Стоимость: {MONTHLY_FEE} ₽/мес (≈2 ₽/день).\n"
-        f"Нужно ≥ {need} ₽ на балансе."
+        "Подтвердите подключение\n\n"
+        f"Устройство: {platform}{(' ' + emoji) if emoji else ''}\n"
+        f"Тариф: {daily_rub}₽/день"
     )
+
     kb = first_buy_kb(afford, MONTHLY_FEE)
     for row in kb.inline_keyboard:
         for btn in row:
@@ -122,11 +132,25 @@ async def choose_os(cq: types.CallbackQuery):
     await safe_answer(cq)
 
 
+
 @router.callback_query(F.data.startswith("confirm_buy:"))
 async def buy_create(cq: types.CallbackQuery):
     os_code = cq.data.split(":", 1)[1]
     devices = await _user_devices(cq.from_user.id)
 
+    if len(devices) >= MAX_DEVICES_PER_USER:
+        await safe_edit(
+            cq.message,
+            (
+                "📱 <b>Лимит устройств достигнут</b>\n\n"
+                f"Можно подключить не более {MAX_DEVICES_PER_USER} устройств.\n"
+                "Удалите одно из существующих, чтобы добавить новое."
+            ),
+            parse_mode="HTML",
+            reply_markup=back_kb()
+        )
+        await safe_answer(cq)
+        return
 
     created = await api.create_user(f"tg_{cq.from_user.id}", DEFAULT_DAYS)
     logging.info(f"[buy_create] API create_user -> {created}")
@@ -151,7 +175,6 @@ async def buy_create(cq: types.CallbackQuery):
 
     logging.info(f"[buy_create] Creating device name={name} for uuid={uuid_}")
 
-
     try:
         db.add_device(
             tg_id=cq.from_user.id,
@@ -163,9 +186,24 @@ async def buy_create(cq: types.CallbackQuery):
             sub_id=(sub_id or None),
             server_base=(server_base or None)
         )
-    except Exception as e:
+    except ValueError as e:
+        if str(e) == "device_limit_reached":
+            await safe_edit(
+                cq.message,
+                (
+                    "📱 <b>Лимит устройств достигнут</b>\n\n"
+                    f"Можно подключить не более {MAX_DEVICES_PER_USER} устройств.\n"
+                    "Удалите одно из существующих, чтобы добавить новое."
+                ),
+                parse_mode="HTML",
+                reply_markup=back_kb()
+            )
+            await safe_answer(cq)
+            return
         logging.exception(f"[buy_create] DB add_device failed: {e}")
-
+        await safe_edit(cq.message, "❌ Не удалось выдать ключ. Попробуйте позже.", reply_markup=back_kb())
+        await safe_answer(cq)
+        return
 
     ident = sub_id or uuid_
     sub = f"{API_URL.rstrip('/')}/sub/{ident}?b64=1"
@@ -182,7 +220,6 @@ async def buy_create(cq: types.CallbackQuery):
 
 @router.callback_query(F.data == "devices")
 async def devices_list(cq: types.CallbackQuery):
-
     try:
         devices = await _user_devices(cq.from_user.id)
     except Exception:
@@ -190,11 +227,16 @@ async def devices_list(cq: types.CallbackQuery):
 
     kb = devices_list_kb(devices)
 
+    limit = MAX_DEVICES_PER_USER
+    reached = len(devices) >= limit
+
     if devices:
         text = (
             "📱 <b>Ваши устройства</b>\n\n"
             "Выберите устройство из списка ниже или добавьте новое.\n\n"
-            "💳 Тариф — 60 ₽ в месяц за каждое устройство.\n"
+            f"👥 Можно подключить до {limit} устройств."
+            + ("\n⚠️ Лимит достигнут. Удалите устройство, чтобы добавить новое." if reached else "")
+            + "\n\n💳 Тариф — 60 ₽ в месяц за каждое устройство.\n"
             "⚠️ Если VPN работает неправильно, обновите настройки для выбранного устройства."
         )
     else:
@@ -202,6 +244,7 @@ async def devices_list(cq: types.CallbackQuery):
             "📱 <b>Ваши устройства</b>\n\n"
             "У вас пока нет устройств.\n"
             "Нажмите «Добавить устройство», чтобы подключиться.\n\n"
+            f"👥 Можно подключить до {limit} устройств.\n"
             "💳 Тариф — 60 ₽ в месяц за каждое устройство."
         )
 
@@ -241,7 +284,9 @@ async def dev_open(cq: types.CallbackQuery):
         f"Статус: <b>{status}</b>\n\n"
         f"<b>Ссылка для подключения:</b>\n<code>{sub}</code>\n\n"
         "Удалить устройство можно не ранее, чем через 24 часа после его добавления.\n"
-        "Если VPN перестал работать — нажмите «Обновить»."
+        "Если VPN перестал работать — нажмите «Обновить». "
+        "Ключ обновится автоматически, ничего менять не нужно. "
+        "После обновления переподключитесь к VPN."
     )
 
     actual_id = str(uuid_ or d.get("id") or d.get("name") or dev_id)
@@ -373,7 +418,9 @@ async def dev_refresh(cq: types.CallbackQuery):
         f"Статус: <b>{status}</b>\n\n"
         f"<b>Ссылка для подключения:</b>\n<code>{sub_link}</code>\n\n"
         "Удалить устройство можно не ранее, чем через 24 часа после его добавления.\n"
-        "Если VPN перестал работать — нажмите «Обновить»."
+        "Если VPN перестал работать — нажмите «Обновить». "
+        "Ключ обновится автоматически, ничего менять не нужно. "
+        "После обновления переподключитесь к VPN."
     )
 
     actual_id = str(uuid_now or d.get("id") or d.get("name") or dev_id)
